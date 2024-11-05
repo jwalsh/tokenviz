@@ -3,3 +3,10 @@
 *.log
 tokenload_pipe
 tokenload_data
+
+# Generated files
+/Makefile
+/Dockerfile
+/CONTRIBUTING.md
+/docs/SETUP.md
+/docs/*.mmd
