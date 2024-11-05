@@ -13,7 +13,7 @@ This simulates what would typically be monitored through enterprise observabilit
 making it useful for local development and pattern analysis.
 
 * Quick Start
-#+begin_src bash :tangle no
+#+begin_src bash
 # Launch dashboard (local)
 make dashboard
 
@@ -28,9 +28,6 @@ make stop
 #+end_src
 
 * Architecture
-:PROPERTIES:
-:header-args: :tangle no
-:END:
 
 ** System Overview
 #+begin_src mermaid :file docs/images/architecture.png :tangle docs/architecture.mmd
@@ -89,9 +86,6 @@ sequenceDiagram
 
 * Implementation
 ** Configuration
-:PROPERTIES:
-:header-args:makefile: :tangle Makefile
-:END:
 
 #+begin_src makefile :tangle Makefile
   # TokenViz Configuration
@@ -111,12 +105,22 @@ sequenceDiagram
   DATA := /tmp/tokenload_data
   LOGDIR := /tmp/tokenload
   SESSION := tokenviz
+
+
+  # Default target
+  .DEFAULT_GOAL := help
+
+  help: ## Show this help message
+  	@echo 'Usage: make [target]'
+  	@echo
+  	@echo 'Targets:'
+  	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 #+end_src
 
 ** Core Components
 *** Setup
 #+begin_src makefile :tangle Makefile
-  setup:
+  setup: ## Setup
   	@echo "Setting up directories and files..."
   	@rm -rf $(LOGDIR) || true
   	@mkdir -p $(LOGDIR)
@@ -128,7 +132,7 @@ sequenceDiagram
 
 *** Generators
 #+begin_src makefile :tangle Makefile
-  generators: setup
+  generators: setup ## Generators
   	@for i in 1 2 3; do \
   		( \
   			while true; do \
@@ -145,7 +149,7 @@ sequenceDiagram
 
 *** Aggregator
 #+begin_src makefile :tangle Makefile
-aggregator: setup
+aggregator: setup ## Aggregator
         @( \
                 while true; do \
                         if [ -d "$(LOGDIR)" ]; then \
@@ -169,7 +173,7 @@ aggregator: setup
 ** Process Management
 *** Dashboard
 #+begin_src makefile :tangle Makefile
-  dashboard: stop setup
+  dashboard: stop setup ## Dashboard
   	@echo "Starting dashboard with DISPLAY=$(XDISPLAY)..."
   	@tmux new-session -d -s $(SESSION) -n 'TokenViz' \; \
   		split-window -h \; \
@@ -209,7 +213,7 @@ aggregator: setup
 
 ** Utility Functions
 #+begin_src makefile :tangle Makefile
-  status:
+  status: ## Status 
   	@echo "TokenViz Status:"
   	@echo "---------------"
   	@echo "Environment: $$([ $(CONTAINER_CHECK) -eq 1 ] && echo 'Container' || echo 'Local')"
@@ -221,7 +225,7 @@ aggregator: setup
   	@echo "\nTmux session:"
   	@tmux has-session -t $(SESSION) 2>/dev/null && echo "Session $(SESSION) is running" || echo "No session running"
 
-  logs:
+  logs: ## Logs
   	@echo "Last 5 lines from each generator:"
   	@for i in 1 2 3; do \
   		echo "\nGenerator $$i:"; \
@@ -234,7 +238,7 @@ aggregator: setup
 ** Container Support
 *** Test Display
 #+begin_src makefile :tangle Makefile
-  test-display:
+  test-display: ## Test display
   	@echo "Container detection: $(CONTAINER_CHECK)"
   	@echo "Using DISPLAY=$(XDISPLAY)"
   	@echo "Testing X11 connection..."
@@ -397,7 +401,11 @@ docker run -v /tmp/.X11-unix:/tmp/.X11-unix tokenviz
    (dockerfile . t)))
 #+end_src
 
-* Local Variables
+* File Properties
 # Local Variables:
 # org-confirm-babel-evaluate: nil
+# org-src-preserve-indentation: t
+# org-edit-src-content-indentation: 0
+# whitespace-style: (face tabs spaces trailing lines space-before-tab newline indentation empty space-after-tab space-mark tab-mark newline-mark)
+# whitespace-mode: t
 # End:
