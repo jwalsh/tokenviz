@@ -1,0 +1,15 @@
+# Generated from README.org via org-mode tangle
+Makefile                 linguist-generated=true
+CONTRIBUTING.md          linguist-generated=true
+Dockerfile              linguist-generated=true
+docs/*.mmd              linguist-generated=true
+
+# Tell GitHub this is an org-mode project
+README.org              linguist-detectable=true
+README.org              linguist-language=Org
+
+# Ensure newlines are normalized
+* text=auto
+
+# Scripts should have LF endings
+*.sh text eol=lf
