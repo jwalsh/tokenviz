@@ -8,11 +8,13 @@
 #+STARTUP: showall
 
 * Overview
+
 TokenViz provides lightweight token usage visualization for LLM systems using Unix tools.
 This simulates what would typically be monitored through enterprise observability platforms,
 making it useful for local development and pattern analysis.
 
 * Quick Start
+
 #+begin_src bash
 # Launch dashboard (local)
 make dashboard
@@ -68,6 +70,7 @@ flowchart TD
 #+end_src
 
 ** Data Flow
+
 #+begin_src mermaid :file docs/images/dataflow.png :tangle docs/dataflow.mmd
 sequenceDiagram
     participant G as Generators
