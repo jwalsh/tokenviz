@@ -1,0 +1,34 @@
+flowchart TD
+    subgraph Generators["Token Generators"]
+        G1["Generator 1\n(Random 0-3000)"]
+        G2["Generator 2\n(Random 0-3000)"]
+        G3["Generator 3\n(Random 0-3000)"]
+    end
+
+    subgraph Storage["Storage Layer"]
+        L1["/tmp/tokenload/gen1.log"]
+        L2["/tmp/tokenload/gen2.log"]
+        L3["/tmp/tokenload/gen3.log"]
+    end
+
+    subgraph Processing["Aggregation Layer"]
+        A1["Aggregator\n(Sum all inputs)"]
+        P1["Named Pipe\n/tmp/tokenload_pipe"]
+        D1["Data File\n/tmp/tokenload_data"]
+    end
+
+    subgraph Display["Visualization Layer"]
+        V1["tmux pane 1\nGenerator Logs"]
+        V2["tmux pane 2\nTotal Usage"]
+        V3["tmux pane 3\nxload Graph"]
+    end
+
+    G1 --> L1
+    G2 --> L2
+    G3 --> L3
+    L1 & L2 & L3 --> A1
+    A1 --> P1
+    A1 --> D1
+    L1 & L2 & L3 --> V1
+    D1 --> V2
+    P1 --> V3

@@ -3,19 +3,37 @@
 #+DATE: [2024-11-05]
 #+PROPERTY: header-args:bash :mkdirp t
 #+PROPERTY: header-args:makefile :mkdirp t
-#+PROPERTY: header-args:mermaid :mkdirp t
+#+PROPERTY: header-args:mermaid :mkdirp t :exports both
 #+PROPERTY: header-args :tangle yes
 #+STARTUP: showall
 
 * Overview
-TokenViz simulates LLM token usage monitoring through Unix tools, helping visualize patterns that would typically be monitored via enterprise observability platforms.
+TokenViz provides lightweight token usage visualization for LLM systems using Unix tools.
+This simulates what would typically be monitored through enterprise observability platforms,
+making it useful for local development and pattern analysis.
+
+* Quick Start
+#+begin_src bash :tangle no
+# Launch dashboard (local)
+make dashboard
+
+# For container environments
+DISPLAY=:1 make dashboard
+
+# View status
+make status
+
+# Clean up
+make stop
+#+end_src
 
 * Architecture
 :PROPERTIES:
 :header-args: :tangle no
 :END:
 
-#+begin_src mermaid :file docs/images/architecture.png
+** System Overview
+#+begin_src mermaid :file docs/images/architecture.png :tangle docs/architecture.mmd
 flowchart TD
     subgraph Generators["Token Generators"]
         G1["Generator 1\n(Random 0-3000)"]
@@ -52,56 +70,81 @@ flowchart TD
     P1 --> V3
 #+end_src
 
+** Data Flow
+#+begin_src mermaid :file docs/images/dataflow.png :tangle docs/dataflow.mmd
+sequenceDiagram
+    participant G as Generators
+    participant L as Log Files
+    participant A as Aggregator
+    participant P as Named Pipe
+    participant D as Display
+
+    loop Every Second
+        G->>L: Write random token counts
+        L->>A: Read latest values
+        A->>P: Write sum to pipe
+        A->>D: Update display
+    end
+#+end_src
+
 * Implementation
 ** Configuration
 :PROPERTIES:
 :header-args:makefile: :tangle Makefile
 :END:
 
-#+begin_src makefile
-# TokenViz Configuration
-SHELL := /bin/bash
-.PHONY: all clean test dashboard stop setup generators aggregator test-tmux test-xload status logs kill-all restart
+#+begin_src makefile :tangle Makefile
+  # TokenViz Configuration
+  SHELL := /bin/bash
+  .PHONY: all clean test dashboard stop setup generators aggregator test-tmux test-xload status logs kill-all restart
 
-# Paths
-PIPE := /tmp/tokenload_pipe
-DATA := /tmp/tokenload_data
-LOGDIR := /tmp/tokenload
-SESSION := tokenviz
+  # Check if we're in a container and set DISPLAY accordingly
+  CONTAINER_CHECK := $(shell test -f /.dockerenv && echo 1 || echo 0)
+  ifeq ($(CONTAINER_CHECK),1)
+      XDISPLAY := :1
+  else
+      XDISPLAY := :0
+  endif
+
+  # Paths
+  PIPE := /tmp/tokenload_pipe
+  DATA := /tmp/tokenload_data
+  LOGDIR := /tmp/tokenload
+  SESSION := tokenviz
 #+end_src
 
 ** Core Components
 *** Setup
-#+begin_src makefile
-setup:
-        @echo "Setting up directories and files..."
-        @rm -rf $(LOGDIR) || true
-        @mkdir -p $(LOGDIR)
-        @rm -f $(PIPE) || true
-        @mkfifo $(PIPE)
-        @touch $(DATA)
-        @for i in 1 2 3; do echo "Initializing gen$$i..." > $(LOGDIR)/gen$$i.log; done
+#+begin_src makefile :tangle Makefile
+  setup:
+  	@echo "Setting up directories and files..."
+  	@rm -rf $(LOGDIR) || true
+  	@mkdir -p $(LOGDIR)
+  	@rm -f $(PIPE) || true
+  	@mkfifo $(PIPE)
+  	@touch $(DATA)
+  	@for i in 1 2 3; do echo "Initializing gen$$i..." > $(LOGDIR)/gen$$i.log; done
 #+end_src
 
 *** Generators
-#+begin_src makefile
-generators: setup
-        @for i in 1 2 3; do \
-                ( \
-                        while true; do \
-                                if [ -d "$(LOGDIR)" ]; then \
-                                        echo "gen$$i: $$((RANDOM % 3000))" >> "$(LOGDIR)/gen$$i.log"; \
-                                else \
-                                        exit 0; \
-                                fi; \
-                                sleep 1; \
-                        done \
-                ) & \
-        done
+#+begin_src makefile :tangle Makefile
+  generators: setup
+  	@for i in 1 2 3; do \
+  		( \
+  			while true; do \
+  				if [ -d "$(LOGDIR)" ]; then \
+  					echo "gen$$i: $$((RANDOM % 3000))" >> "$(LOGDIR)/gen$$i.log"; \
+  				else \
+  					exit 0; \
+  				fi; \
+  				sleep 1; \
+  			done \
+  		) & \
+  	done
 #+end_src
 
 *** Aggregator
-#+begin_src makefile
+#+begin_src makefile :tangle Makefile
 aggregator: setup
         @( \
                 while true; do \
@@ -125,105 +168,114 @@ aggregator: setup
 
 ** Process Management
 *** Dashboard
-#+begin_src makefile
-dashboard: stop setup
-        @echo "Starting dashboard..."
-        @tmux new-session -d -s $(SESSION) -n 'TokenViz' \; \
-                split-window -h \; \
-                split-window -h \; \
-                select-layout even-horizontal \; \
-                send-keys -t 0 "while true; do clear; tail -n 10 $(LOGDIR)/gen*.log 2>/dev/null || echo 'Waiting for data...'; sleep 1; done" C-m \; \
-                send-keys -t 1 "while true; do clear; tail -n 10 $(DATA) 2>/dev/null || echo 'Waiting for data...'; sleep 1; done" C-m \; \
-                send-keys -t 2 "DISPLAY=:0 xload -geometry 400x200+100+100 -bg black -fg green -scale 5 < $(PIPE)" C-m \; \
-                select-pane -t 0
-        @echo "Starting generators..."
-        @$(MAKE) generators
-        @echo "Starting aggregator..."
-        @$(MAKE) aggregator
-        @echo "Attaching to session..."
-        @tmux attach -t $(SESSION)
+#+begin_src makefile :tangle Makefile
+  dashboard: stop setup
+  	@echo "Starting dashboard with DISPLAY=$(XDISPLAY)..."
+  	@tmux new-session -d -s $(SESSION) -n 'TokenViz' \; \
+  		split-window -h \; \
+  		split-window -h \; \
+  		select-layout even-horizontal \; \
+  		send-keys -t 0 "while true; do clear; tail -n 10 $(LOGDIR)/gen*.log 2>/dev/null || echo 'Waiting for data...'; sleep 1; done" C-m \; \
+  		send-keys -t 1 "while true; do clear; tail -n 10 $(DATA) 2>/dev/null || echo 'Waiting for data...'; sleep 1; done" C-m \; \
+  		send-keys -t 2 "DISPLAY=$(XDISPLAY) xload -geometry 400x200+100+100 -bg black -fg green -scale 5 < $(PIPE)" C-m \; \
+  		select-pane -t 0
+  	@echo "Starting generators..."
+  	@$(MAKE) generators
+  	@echo "Starting aggregator..."
+  	@$(MAKE) aggregator
+  	@echo "Attaching to session..."
+  	@tmux attach -t $(SESSION)
 #+end_src
 
 *** Process Control
-#+begin_src makefile
-stop:
-        @echo "Stopping all processes..."
-        @pkill -f "/bin/bash.*while true.*gen" 2>/dev/null || true
-        @pkill -f "while true.*TOTAL" 2>/dev/null || true
-        @tmux kill-session -t $(SESSION) 2>/dev/null || true
-        @rm -f $(PIPE) $(DATA) 2>/dev/null || true
-        @rm -rf $(LOGDIR) 2>/dev/null || true
-        @echo "All processes stopped"
+#+begin_src makefile :tangle Makefile
+  stop:
+  	@echo "Stopping all processes..."
+  	@pkill -f "/bin/bash.*while true.*gen" 2>/dev/null || true
+  	@pkill -f "while true.*TOTAL" 2>/dev/null || true
+  	@tmux kill-session -t $(SESSION) 2>/dev/null || true
+  	@rm -f $(PIPE) $(DATA) 2>/dev/null || true
+  	@rm -rf $(LOGDIR) 2>/dev/null || true
+  	@echo "All processes stopped"
 
-kill-all:
-        @echo "Emergency cleanup in progress..."
-        @ps ax | grep "gen.*RANDOM" | grep -v grep | awk '{print $$1}' | xargs kill -9 2>/dev/null || true
-        @pkill -f "while true.*TOTAL" 2>/dev/null || true
-        @echo "Emergency cleanup complete"
+  kill-all:
+  	@echo "Emergency cleanup in progress..."
+  	@ps ax | grep "gen.*RANDOM" | grep -v grep | awk '{print $$1}' | xargs kill -9 2>/dev/null || true
+  	@pkill -f "while true.*TOTAL" 2>/dev/null || true
+  	@echo "Emergency cleanup complete"
 
-restart: stop dashboard
+  restart: stop dashboard
 #+end_src
 
 ** Utility Functions
-#+begin_src makefile
-status:
-        @echo "TokenViz Status:"
-        @echo "---------------"
-        @echo "Generator processes:"
-        @ps ax | grep "while true.*gen" | grep -v grep || echo "No generators running"
-        @echo "\nAggregator process:"
-        @ps ax | grep "while true.*TOTAL" | grep -v grep || echo "No aggregator running"
-        @echo "\nTmux session:"
-        @tmux has-session -t $(SESSION) 2>/dev/null && echo "Session $(SESSION) is running" || echo "No session running"
+#+begin_src makefile :tangle Makefile
+  status:
+  	@echo "TokenViz Status:"
+  	@echo "---------------"
+  	@echo "Environment: $$([ $(CONTAINER_CHECK) -eq 1 ] && echo 'Container' || echo 'Local')"
+  	@echo "Display: $(XDISPLAY)"
+  	@echo "\nGenerator processes:"
+  	@ps ax | grep "while true.*gen" | grep -v grep || echo "No generators running"
+  	@echo "\nAggregator process:"
+  	@ps ax | grep "while true.*TOTAL" | grep -v grep || echo "No aggregator running"
+  	@echo "\nTmux session:"
+  	@tmux has-session -t $(SESSION) 2>/dev/null && echo "Session $(SESSION) is running" || echo "No session running"
 
-logs:
-        @echo "Last 5 lines from each generator:"
-        @for i in 1 2 3; do \
-                echo "\nGenerator $$i:"; \
-                tail -n 5 "$(LOGDIR)/gen$$i.log" 2>/dev/null || echo "No log file"; \
-        done
-        @echo "\nLast 5 lines from aggregator:"
-        @tail -n 5 "$(DATA)" 2>/dev/null || echo "No aggregator data"
+  logs:
+  	@echo "Last 5 lines from each generator:"
+  	@for i in 1 2 3; do \
+  		echo "\nGenerator $$i:"; \
+  		tail -n 5 "$(LOGDIR)/gen$$i.log" 2>/dev/null || echo "No log file"; \
+  	done
+  	@echo "\nLast 5 lines from aggregator:"
+  	@tail -n 5 "$(DATA)" 2>/dev/null || echo "No aggregator data"
 #+end_src
 
-** Tests
-#+begin_src makefile
-test-tmux:
-        @echo "Testing tmux..."
-        @tmux new-session -d -s test-tokenviz || (echo "Failed to create tmux session" && exit 1)
-        @echo "Created test session"
-        @tmux has-session -t test-tokenviz || (echo "Session creation failed" && exit 1)
-        @tmux kill-session -t test-tokenviz
-        @echo "Tmux test passed"
-
-test-xload:
-        @echo "Testing xload..."
-        @echo "DISPLAY=$$DISPLAY"
-        @mkfifo $(PIPE) 2>/dev/null || true
-        @(while true; do echo "100"; sleep 1; done) > $(PIPE) & echo "Starting generator"
-        @DISPLAY=:0 xload -geometry 200x100+50+50 -bg black -fg green < $(PIPE) & echo "Started xload"
-        @sleep 5
-        @pkill -f "while true.*echo.*100" || true
-        @pkill xload || true
-        @rm -f $(PIPE)
-        @echo "Xload test complete"
-
-test: test-tmux test-xload
-        @echo "All tests passed"
+** Container Support
+*** Test Display
+#+begin_src makefile :tangle Makefile
+  test-display:
+  	@echo "Container detection: $(CONTAINER_CHECK)"
+  	@echo "Using DISPLAY=$(XDISPLAY)"
+  	@echo "Testing X11 connection..."
+  	@if DISPLAY=$(XDISPLAY) xdpyinfo >/dev/null 2>&1; then \
+  		echo "X11 connection successful"; \
+  	else \
+  		echo "X11 connection failed"; \
+  		exit 1; \
+  	fi
 #+end_src
 
-** Main Targets
-#+begin_src makefile
-clean: stop
-
-all: test dashboard
-#+end_src
-
-* Production Equivalents
+*** Dockerfile
 :PROPERTIES:
-:header-args: :tangle no
+:header-args:dockerfile: :tangle Dockerfile
 :END:
 
+#+begin_src dockerfile
+FROM ubuntu:22.04
+
+# Install required packages
+RUN apt-get update && apt-get install -y \
+    tmux \
+    x11-apps \
+    xauth \
+    make \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up working directory
+WORKDIR /app
+
+# Copy application files
+COPY . .
+
+# Set display for X11
+ENV DISPLAY=:1
+
+# Default command
+CMD ["make", "dashboard"]
+#+end_src
+
+* Cloud Equivalents
 ** AWS Implementation
 #+begin_src mermaid :file docs/images/aws-impl.png
 flowchart LR
@@ -300,65 +352,36 @@ flowchart LR
     C1 --> V1
 #+end_src
 
-* Installation
+* Contributing
 :PROPERTIES:
-:header-args:bash: :tangle install.sh
+:header-args:markdown: :tangle CONTRIBUTING.md
 :END:
 
-#+begin_src bash
-#!/bin/bash
+#+begin_src markdown
+# Contributing to TokenViz
 
-# Check dependencies
-command -v tmux >/dev/null 2>&1 || { echo "Installing tmux..."; brew install tmux; }
-command -v xload >/dev/null 2>&1 || { echo "Please ensure XQuartz is installed"; exit 1; }
+## Development Setup
 
-# Create project structure
-mkdir -p docs/images
+1. Fork and clone the repository
+2. Ensure XQuartz is installed (macOS)
+3. Run tests: `make test`
+4. Submit PR with clear description
 
-# Initialize git if not already initialized
-if [ ! -d .git ]; then
-    git init
-    echo "*.log" > .gitignore
-    echo ".DS_Store" >> .gitignore
-    echo "/tmp" >> .gitignore
-    git add .
-    git commit -m "Initial commit: TokenViz setup"
-fi
+## Container Development
 
-echo "TokenViz installation complete!"
-echo "Run 'make dashboard' to start visualization"
+```bash
+# Build container
+docker build -t tokenviz .
+
+# Run with X11 socket mounted
+docker run -v /tmp/.X11-unix:/tmp/.X11-unix tokenviz
+```
+
+## Testing
+- Run `make test-display` to verify X11 setup
+- Run `make test` for full test suite
+- Ensure clean shutdown with `make stop`
 #+end_src
-
-* Local Testing
-:PROPERTIES:
-:header-args:bash: :tangle test.sh
-:END:
-
-#+begin_src bash
-#!/bin/bash
-
-# Run tests
-make test
-
-# Optional: Run a quick simulation
-make dashboard &
-sleep 10
-make status
-make logs
-make stop
-#+end_src
-
-* Notes
-** Production Considerations
-- AWS implementation uses SNS/SQS for reliable event distribution
-- Kafka provides high-throughput streaming for real-time aggregation
-- Prometheus/Grafana offers traditional metrics collection and visualization
-
-** Development Notes
-- Uses simple Unix tools (tmux, xload) for visualization
-- Generators simulate variable token usage patterns
-- Aggregator provides real-time summation
-- All data is ephemeral (/tmp storage)
 
 * Export Configuration
 :PROPERTIES:
@@ -370,9 +393,11 @@ make stop
  'org-babel-load-languages
  '((shell . t)
    (makefile . t)
-   (mermaid . t)))
+   (mermaid . t)
+   (dockerfile . t)))
 #+end_src
 
+* Local Variables
 # Local Variables:
 # org-confirm-babel-evaluate: nil
 # End:
