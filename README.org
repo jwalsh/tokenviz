@@ -13,15 +13,15 @@ TokenViz provides lightweight token usage visualization for LLM systems using Un
 This simulates what would typically be monitored through enterprise observability platforms,
 making it useful for local development and pattern analysis.
 
-** Dashboard Preview
-#+begin_src markdown
-![TokenViz Dashboard](tokenviz_20241106_104613.png)
+* Dashboard Preview
+
+[[file:tokenviz_20241106_104613.png][TokenViz Dashboard]]
 
 The TokenViz dashboard provides real-time visualization of token usage across multiple generators:
 - Left pane: Individual generator logs showing token consumption per service
 - Center pane: Aggregated token usage with timestamps  
-- Right pane: Live `xload` graph displaying total system token load
-#+end_src
+- Right pane: Live =xload= graph displaying total system token load
+
 * Quick Start
 
 #+begin_src bash
