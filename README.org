@@ -13,6 +13,15 @@ TokenViz provides lightweight token usage visualization for LLM systems using Un
 This simulates what would typically be monitored through enterprise observability platforms,
 making it useful for local development and pattern analysis.
 
+** Dashboard Preview
+#+begin_src markdown
+![TokenViz Dashboard](tokenviz_20241106_104613.png)
+
+The TokenViz dashboard provides real-time visualization of token usage across multiple generators:
+- Left pane: Individual generator logs showing token consumption per service
+- Center pane: Aggregated token usage with timestamps  
+- Right pane: Live `xload` graph displaying total system token load
+#+end_src
 * Quick Start
 
 #+begin_src bash
@@ -70,7 +79,6 @@ flowchart TD
 #+end_src
 
 ** Data Flow
-
 #+begin_src mermaid :file docs/images/dataflow.png :tangle docs/dataflow.mmd
 sequenceDiagram
     participant G as Generators
@@ -89,176 +97,178 @@ sequenceDiagram
 
 * Implementation
 ** Configuration
-
 #+begin_src makefile :tangle Makefile
-  # TokenViz Configuration
-  SHELL := /bin/bash
-  .PHONY: all clean test dashboard stop setup generators aggregator test-tmux test-xload status logs kill-all restart
+# TokenViz Configuration
+SHELL := /bin/bash
+.PHONY: all clean test dashboard stop setup generators aggregator test-tmux test-xload status logs kill-all restart
 
-  # Check if we're in a container and set DISPLAY accordingly
-  CONTAINER_CHECK := $(shell test -f /.dockerenv && echo 1 || echo 0)
-  ifeq ($(CONTAINER_CHECK),1)
-      XDISPLAY := :1
-  else
-      XDISPLAY := :0
-  endif
+# Check if we're in a container and set DISPLAY accordingly
+CONTAINER_CHECK := $(shell test -f /.dockerenv && echo 1 || echo 0)
+ifeq ($(CONTAINER_CHECK),1)
+	XDISPLAY := :1
+else
+	XDISPLAY := :0
+endif
 
-  # Paths
-  PIPE := /tmp/tokenload_pipe
-  DATA := /tmp/tokenload_data
-  LOGDIR := /tmp/tokenload
-  SESSION := tokenviz
+# Paths
+PIPE := /tmp/tokenload_pipe
+DATA := /tmp/tokenload_data
+LOGDIR := /tmp/tokenload
+SESSION := tokenviz
 
+# Default target
+.DEFAULT_GOAL := help
 
-  # Default target
-  .DEFAULT_GOAL := help
-
-  help: ## Show this help message
-  	@echo 'Usage: make [target]'
-  	@echo
-  	@echo 'Targets:'
-  	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+help: ## Show this help message
+	@echo 'Usage: make [target]'
+	@echo
+	@echo 'Targets:'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 #+end_src
 
 ** Core Components
 *** Setup
 #+begin_src makefile :tangle Makefile
-  setup: ## Setup
-  	@echo "Setting up directories and files..."
-  	@rm -rf $(LOGDIR) || true
-  	@mkdir -p $(LOGDIR)
-  	@rm -f $(PIPE) || true
-  	@mkfifo $(PIPE)
-  	@touch $(DATA)
-  	@for i in 1 2 3; do echo "Initializing gen$$i..." > $(LOGDIR)/gen$$i.log; done
+setup: ## Setup
+	@echo "Setting up directories and files..."
+	@rm -rf $(LOGDIR) || true
+	@mkdir -p $(LOGDIR)
+	@rm -f $(PIPE) || true
+	@mkfifo $(PIPE)
+	@touch $(DATA)
+	@for i in 1 2 3; do echo "Initializing gen$$i..." > $(LOGDIR)/gen$$i.log; done
 #+end_src
 
 *** Generators
 #+begin_src makefile :tangle Makefile
-  generators: setup ## Generators
-  	@for i in 1 2 3; do \
-  		( \
-  			while true; do \
-  				if [ -d "$(LOGDIR)" ]; then \
-  					echo "gen$$i: $$((RANDOM % 3000))" >> "$(LOGDIR)/gen$$i.log"; \
-  				else \
-  					exit 0; \
-  				fi; \
-  				sleep 1; \
-  			done \
-  		) & \
-  	done
-#+end_src
+generators: setup ## Generators
+	@for i in 1 2 3; do \
+		( \
+			while true; do \
+				if [ -d "$(LOGDIR)" ]; then \
+					echo "gen$$i: $$((RANDOM % 3000))" >> "$(LOGDIR)/gen$$i.log"; \
+				else \
+					exit 0; \
+				fi; \
+				sleep 1; \
+			done \
+		) & \
+	done
 
-*** Aggregator
-#+begin_src makefile :tangle Makefile
 aggregator: setup ## Aggregator
-        @( \
-                while true; do \
-                        if [ -d "$(LOGDIR)" ]; then \
-                                TOTAL=0; \
-                                for f in $(LOGDIR)/gen*.log; do \
-                                        if [ -f "$$f" ]; then \
-                                                VAL=$$(tail -n1 "$$f" 2>/dev/null | grep -o '[0-9]*$$' || echo 0); \
-                                                TOTAL=$$((TOTAL + VAL)); \
-                                        fi; \
-                                done; \
-                                echo "$$TOTAL" > "$(PIPE)" 2>/dev/null || exit 0; \
-                                echo "[`date '+%H:%M:%S'`] Total: $$TOTAL" > "$(DATA)" 2>/dev/null || exit 0; \
-                        else \
-                                exit 0; \
-                        fi; \
-                        sleep 1; \
-                done \
-        ) &
+	@( \
+		while true; do \
+			if [ -d "$(LOGDIR)" ]; then \
+				TOTAL=0; \
+				for f in $(LOGDIR)/gen*.log; do \
+					if [ -f "$$f" ]; then \
+						VAL=$$(tail -n1 "$$f" 2>/dev/null | grep -o '[0-9]*$$' || echo 0); \
+						TOTAL=$$((TOTAL + VAL)); \
+					fi; \
+				done; \
+				echo "$$TOTAL" > "$(PIPE)" 2>/dev/null || exit 0; \
+				echo "[`date '+%H:%M:%S'`] Total: $$TOTAL" > "$(DATA)" 2>/dev/null || exit 0; \
+			else \
+				exit 0; \
+			fi; \
+			sleep 1; \
+		done \
+	) &
 #+end_src
 
 ** Process Management
 *** Dashboard
 #+begin_src makefile :tangle Makefile
-  dashboard: stop setup ## Dashboard
-  	@echo "Starting dashboard with DISPLAY=$(XDISPLAY)..."
-  	@tmux new-session -d -s $(SESSION) -n 'TokenViz' \; \
-  		split-window -h \; \
-  		split-window -h \; \
-  		select-layout even-horizontal \; \
-  		send-keys -t 0 "while true; do clear; tail -n 10 $(LOGDIR)/gen*.log 2>/dev/null || echo 'Waiting for data...'; sleep 1; done" C-m \; \
-  		send-keys -t 1 "while true; do clear; tail -n 10 $(DATA) 2>/dev/null || echo 'Waiting for data...'; sleep 1; done" C-m \; \
-  		send-keys -t 2 "DISPLAY=$(XDISPLAY) xload -geometry 400x200+100+100 -bg black -fg green -scale 5 < $(PIPE)" C-m \; \
-  		select-pane -t 0
-  	@echo "Starting generators..."
-  	@$(MAKE) generators
-  	@echo "Starting aggregator..."
-  	@$(MAKE) aggregator
-  	@echo "Attaching to session..."
-  	@tmux attach -t $(SESSION)
+dashboard: setup ## Dashboard
+	@echo "Starting dashboard with DISPLAY=$(XDISPLAY)..."
+	@tmux new-session -d -s $(SESSION) -n 'TokenViz' \; \
+		split-window -h \; \
+		split-window -h \; \
+		select-layout even-horizontal \; \
+		send-keys -t 0 "while true; do clear; tail -n 10 $(LOGDIR)/gen*.log 2>/dev/null || echo 'Waiting for data...'; sleep 1; done" C-m \; \
+		send-keys -t 1 "while true; do clear; tail -n 10 $(DATA) 2>/dev/null || echo 'Waiting for data...'; sleep 1; done" C-m \; \
+		send-keys -t 2 "DISPLAY=$(XDISPLAY) xload -geometry 400x200+100+100 -bg black -fg green -scale 5 < $(PIPE)" C-m \; \
+		select-pane -t 0
+	@echo "Starting generators..."
+	@$(MAKE) generators
+	@echo "Starting aggregator..."
+	@$(MAKE) aggregator
+	@echo "Attaching to session..."
+	@tmux attach -t $(SESSION)
 #+end_src
 
 *** Process Control
 #+begin_src makefile :tangle Makefile
-  stop:
-  	@echo "Stopping all processes..."
-  	@pkill -f "/bin/bash.*while true.*gen" 2>/dev/null || true
-  	@pkill -f "while true.*TOTAL" 2>/dev/null || true
-  	@tmux kill-session -t $(SESSION) 2>/dev/null || true
-  	@rm -f $(PIPE) $(DATA) 2>/dev/null || true
-  	@rm -rf $(LOGDIR) 2>/dev/null || true
-  	@echo "All processes stopped"
+stop: ## Stop all processes
+	@echo "Stopping all processes..."
+	@pkill -f "/bin/bash.*while true.*gen" 2>/dev/null || true
+	@pkill -f "while true.*TOTAL" 2>/dev/null || true
+	@tmux kill-session -t $(SESSION) 2>/dev/null || true
+	@rm -f $(PIPE) $(DATA) 2>/dev/null || true
+	@rm -rf $(LOGDIR) 2>/dev/null || true
+	@echo "All processes stopped"
 
-  kill-all:
-  	@echo "Emergency cleanup in progress..."
-  	@ps ax | grep "gen.*RANDOM" | grep -v grep | awk '{print $$1}' | xargs kill -9 2>/dev/null || true
-  	@pkill -f "while true.*TOTAL" 2>/dev/null || true
-  	@echo "Emergency cleanup complete"
+kill-all: ## Emergency cleanup
+	@echo "Emergency cleanup in progress..."
+	@ps ax | grep "gen.*RANDOM" | grep -v grep | awk '{print $$1}' | xargs kill -9 2>/dev/null || true
+	@pkill -f "while true.*TOTAL" 2>/dev/null || true
+	@echo "Emergency cleanup complete"
 
-  restart: stop dashboard
+restart: stop dashboard ## Restart all services
 #+end_src
 
 ** Utility Functions
 #+begin_src makefile :tangle Makefile
-  status: ## Status 
-  	@echo "TokenViz Status:"
-  	@echo "---------------"
-  	@echo "Environment: $$([ $(CONTAINER_CHECK) -eq 1 ] && echo 'Container' || echo 'Local')"
-  	@echo "Display: $(XDISPLAY)"
-  	@echo "\nGenerator processes:"
-  	@ps ax | grep "while true.*gen" | grep -v grep || echo "No generators running"
-  	@echo "\nAggregator process:"
-  	@ps ax | grep "while true.*TOTAL" | grep -v grep || echo "No aggregator running"
-  	@echo "\nTmux session:"
-  	@tmux has-session -t $(SESSION) 2>/dev/null && echo "Session $(SESSION) is running" || echo "No session running"
+status: ## Status
+	@echo "TokenViz Status:"
+	@echo "---------------"
+	@echo "Environment: $$([ $(CONTAINER_CHECK) -eq 1 ] && echo 'Container' || echo 'Local')"
+	@echo "Display: $(XDISPLAY)"
+	@echo "\nGenerator processes:"
+	@ps ax | grep "while true.*gen" | grep -v grep || echo "No generators running"
+	@echo "\nAggregator process:"
+	@ps ax | grep "while true.*TOTAL" | grep -v grep || echo "No aggregator running"
+	@echo "\nTmux session:"
+	@tmux has-session -t $(SESSION) 2>/dev/null && echo "Session $(SESSION) is running" || echo "No session running"
 
-  logs: ## Logs
-  	@echo "Last 5 lines from each generator:"
-  	@for i in 1 2 3; do \
-  		echo "\nGenerator $$i:"; \
-  		tail -n 5 "$(LOGDIR)/gen$$i.log" 2>/dev/null || echo "No log file"; \
-  	done
-  	@echo "\nLast 5 lines from aggregator:"
-  	@tail -n 5 "$(DATA)" 2>/dev/null || echo "No aggregator data"
+logs: ## Logs
+	@echo "Last 5 lines from each generator:"
+	@for i in 1 2 3; do \
+		echo "\nGenerator $$i:"; \
+		tail -n 5 "$(LOGDIR)/gen$$i.log" 2>/dev/null || echo "No log file"; \
+	done
+	@echo "\nLast 5 lines from aggregator:"
+	@tail -n 5 "$(DATA)" 2>/dev/null || echo "No aggregator data"
+
+test-display: ## Test display
+	@echo "Container detection: $(CONTAINER_CHECK)"
+	@echo "Using DISPLAY=$(XDISPLAY)"
+	@echo "Testing X11 connection..."
+	@if DISPLAY=$(XDISPLAY) xdpyinfo >/dev/null 2>&1; then \
+		echo "X11 connection successful"; \
+	else \
+		echo "X11 connection failed"; \
+		exit 1; \
+	fi
 #+end_src
 
 ** Container Support
 *** Test Display
 #+begin_src makefile :tangle Makefile
-  test-display: ## Test display
-  	@echo "Container detection: $(CONTAINER_CHECK)"
-  	@echo "Using DISPLAY=$(XDISPLAY)"
-  	@echo "Testing X11 connection..."
-  	@if DISPLAY=$(XDISPLAY) xdpyinfo >/dev/null 2>&1; then \
-  		echo "X11 connection successful"; \
-  	else \
-  		echo "X11 connection failed"; \
-  		exit 1; \
-  	fi
+test-display: ## Test display
+	@echo "Container detection: $(CONTAINER_CHECK)"
+	@echo "Using DISPLAY=$(XDISPLAY)"
+	@echo "Testing X11 connection..."
+	@if DISPLAY=$(XDISPLAY) xdpyinfo >/dev/null 2>&1; then \
+		echo "X11 connection successful"; \
+	else \
+		echo "X11 connection failed"; \
+		exit 1; \
+	fi
 #+end_src
 
 *** Dockerfile
-:PROPERTIES:
-:header-args:dockerfile: :tangle Dockerfile
-:END:
-
-#+begin_src dockerfile
+#+begin_src dockerfile :tangle Dockerfile
 FROM ubuntu:22.04
 
 # Install required packages
@@ -360,11 +370,8 @@ flowchart LR
 #+end_src
 
 * Contributing
-:PROPERTIES:
-:header-args:markdown: :tangle CONTRIBUTING.md
-:END:
 
-#+begin_src markdown
+#+begin_src markdown :tangle CONTRIBUTING.md
 # Contributing to TokenViz
 
 ## Development Setup
@@ -388,20 +395,6 @@ docker run -v /tmp/.X11-unix:/tmp/.X11-unix tokenviz
 - Run `make test-display` to verify X11 setup
 - Run `make test` for full test suite
 - Ensure clean shutdown with `make stop`
-#+end_src
-
-* Export Configuration
-:PROPERTIES:
-:header-args: :tangle no
-:END:
-
-#+begin_src emacs-lisp
-(org-babel-do-load-languages
- 'org-babel-load-languages
- '((shell . t)
-   (makefile . t)
-   (mermaid . t)
-   (dockerfile . t)))
 #+end_src
 
 * File Properties
