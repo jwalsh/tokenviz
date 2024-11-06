@@ -15,12 +15,9 @@ making it useful for local development and pattern analysis.
 
 * Dashboard Preview
 
-[[file:tokenviz_20241106_104613.png][TokenViz Dashboard]]
-
-The TokenViz dashboard provides real-time visualization of token usage across multiple generators:
-- Left pane: Individual generator logs showing token consumption per service
-- Center pane: Aggregated token usage with timestamps  
-- Right pane: Live =xload= graph displaying total system token load
+#+CAPTION: TokenViz Dashboard showing real-time token usage visualization
+#+NAME: fig:tokenviz-dashboard
+[[file:tokenviz_20241106_104613.png]]
 
 * Quick Start
 
